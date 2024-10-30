@@ -1,0 +1,3 @@
+# install-tools.sh
+go install github.com/onsi/ginkgo/v2/ginkgo
+go get github.com/onsi/gomega/...
