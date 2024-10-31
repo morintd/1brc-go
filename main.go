@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"os"
-	"runtime/pprof"
 	"time"
 
 	_ "github.com/onsi/ginkgo/v2"
@@ -13,14 +12,6 @@ import (
 )
 
 func main() {
-	f, perr := os.Create("cpu.pprof")
-
-	if perr != nil {
-		log.Fatal(perr)
-	}
-
-	pprof.StartCPUProfile(f)
-
 	args := os.Args
 
 	if len(args) < 2 {
@@ -35,6 +26,4 @@ func main() {
 
 	log.Printf("\nTook %s", elapsed)
 	log.Println(result)
-
-	pprof.StopCPUProfile()
 }
