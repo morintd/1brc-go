@@ -18,8 +18,9 @@ func main() {
 	filePath := args[1]
 
 	start := time.Now()
-	internal.SolveFast(filePath)
+	result := internal.SolveFast(filePath)
 	elapsed := time.Since(start)
 
+	log.Printf("\n%s", result)
 	log.Printf("\nTook %s", elapsed)
 }

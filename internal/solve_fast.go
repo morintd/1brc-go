@@ -1,35 +1,40 @@
 package internal
 
 import (
-	"bufio"
 	"bytes"
-	"io"
 	"log"
 	"os"
 	"runtime"
 	"sort"
+
+	"github.com/edsrzf/mmap-go"
 )
 
 func SolveFast(filename string) string {
-	workers := int64(runtime.NumCPU())
+	workers := runtime.NumCPU()
 
 	file, err := os.Open(filename)
-
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	defer file.Close()
 
 	info, err := file.Stat()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fileSize := int(info.Size())
+
+	mmap, err := mmap.Map(file, mmap.RDONLY, 0)
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fileSize := info.Size()
+	defer mmap.Unmap()
 
-	offset := fileSize / int64(workers)
+	offset := fileSize / workers
 
 	if offset == 0 {
 		workers = 1
@@ -39,17 +44,18 @@ func SolveFast(filename string) string {
 	results := make(map[string]StationResult)
 	send := make(chan map[string]StationResult, workers)
 
-	for i := int64(0); i < workers; i++ {
-		limit := offset * (i + 1)
+	for i := 0; i < workers; i++ {
+		start := offset * i
+		end := offset * (i + 1)
 
 		if i == workers-1 {
-			limit = fileSize
+			end = fileSize
 		}
 
-		go readSection(filename, offset*i, limit, send)
+		go processMemorySection(mmap, start, end, send)
 	}
 
-	for i := int64(0); i < workers; i++ {
+	for i := 0; i < workers; i++ {
 		workerResults := <-send
 
 		for workerName := range workerResults {
@@ -104,57 +110,46 @@ func orderResults(results map[string]StationResult) []StationResult {
 	return ordered
 }
 
-func readSection(filename string, offset int64, limit int64, send chan map[string]StationResult) {
-	file, err := os.Open(filename)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	defer file.Close()
-
-	read := int64(0)
+func processMemorySection(data mmap.MMap, start, end int, send chan map[string]StationResult) {
 	results := make(map[string]StationResult)
 
-	file.Seek(offset, 0)
-	reader := bufio.NewReaderSize(file, 1<<20)
+	position := int(start)
 
-	if offset != 0 {
-		b, _ := reader.ReadBytes('\n')
-		read += int64(len(b))
+	if start > 0 && data[start-1] != '\n' {
+		next_line_position := bytes.IndexByte(data[position:], '\n')
+		if next_line_position != -1 {
+			position = position + next_line_position + 1
+		}
 	}
 
-	for {
-		if offset+read > limit {
+	for position < end {
+		nextlinePost := bytes.IndexByte(data[position:], '\n')
+		if nextlinePost == -1 {
 			break
 		}
+		newlinePos := position + nextlinePost
 
-		b, err := reader.ReadBytes('\n')
+		line := data[position:newlinePos]
 
-		if err != nil && err != io.EOF {
-			log.Panic(err)
-		}
-
-		semi := bytes.IndexByte(b, ';')
-		if semi <= 0 || semi == len(b)-1 {
-			read += int64(len(b))
-			if err == io.EOF {
-				break
-			}
+		if len(line) == 0 {
+			position = newlinePos + 1
 			continue
 		}
 
-		name := string(b[:semi])
-		line := b[semi+1:]
-
-		if len(line) > 0 && line[len(line)-1] == '\n' {
-			line = line[:len(line)-1]
-		}
-		if len(line) > 0 && line[len(line)-1] == '\r' {
-			line = line[:len(line)-1]
+		semi := bytes.IndexByte(line, ';')
+		if semi <= 0 || semi == len(line)-1 {
+			position = newlinePos + 1
+			continue
 		}
 
-		temperature := temperatureToInt(line)
+		name := string(line[:semi])
+		temperature_bytes := line[semi+1:]
+
+		if len(temperature_bytes) > 0 && temperature_bytes[len(temperature_bytes)-1] == '\r' {
+			temperature_bytes = temperature_bytes[:len(temperature_bytes)-1]
+		}
+
+		temperature := temperatureToInt(temperature_bytes)
 
 		if station, ok := results[name]; ok {
 			station.Total += temperature
@@ -180,11 +175,7 @@ func readSection(filename string, offset int64, limit int64, send chan map[strin
 			}
 		}
 
-		read += int64(len(b))
-
-		if err == io.EOF {
-			break
-		}
+		position = newlinePos + 1
 	}
 
 	send <- results
