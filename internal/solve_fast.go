@@ -5,9 +5,9 @@ import (
 	"log"
 	"os"
 	"runtime"
-	"sort"
 
 	"github.com/edsrzf/mmap-go"
+	"github.com/emirpasic/gods/trees/redblacktree"
 )
 
 func SolveFast(filename string) string {
@@ -41,7 +41,7 @@ func SolveFast(filename string) string {
 		offset = fileSize
 	}
 
-	results := make(map[string]StationResult)
+	results := redblacktree.NewWithStringComparator()
 	send := make(chan map[string]StationResult, workers)
 
 	for i := 0; i < workers; i++ {
@@ -59,7 +59,8 @@ func SolveFast(filename string) string {
 		workerResults := <-send
 
 		for workerName := range workerResults {
-			if station, ok := results[workerName]; ok {
+			if value, found := results.Get(workerName); found {
+				station := value.(StationResult)
 				workerStation := workerResults[workerName]
 
 				station.Total += workerStation.Total
@@ -73,43 +74,32 @@ func SolveFast(filename string) string {
 					station.Minimum = workerStation.Minimum
 				}
 
-				results[workerName] = station
+				results.Put(workerName, station)
 			} else {
-				results[workerName] = workerResults[workerName]
+				results.Put(workerName, workerResults[workerName])
 			}
 		}
 	}
 
 	var buffer bytes.Buffer
 
-	ordered := orderResults(results)
-	count := len(ordered)
+	iterator := results.Iterator()
+	count := results.Size()
 
-	for i, station := range ordered {
+	i := 0
+	for iterator.Next() {
+		station := iterator.Value().(StationResult)
 		buffer.WriteString(station.String())
 
 		if i < count-1 {
 			buffer.WriteString(";")
 		}
+		i++
 	}
 
 	return buffer.String()
+
 }
-
-func orderResults(results map[string]StationResult) []StationResult {
-	ordered := make([]StationResult, 0, len(results))
-
-	for name := range results {
-		ordered = append(ordered, results[name])
-	}
-
-	sort.Slice(ordered, func(i, j int) bool {
-		return ordered[i].Name < ordered[j].Name
-	})
-
-	return ordered
-}
-
 func processMemorySection(data mmap.MMap, start, end int, send chan map[string]StationResult) {
 	results := make(map[string]StationResult)
 

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"log"
 	"os"
+	"sort"
 )
 
 func SolveSlow(filename string) string {
@@ -78,4 +79,18 @@ func SolveSlow(filename string) string {
 	}
 
 	return buffer.String()
+}
+
+func orderResults(results map[string]StationResult) []StationResult {
+	ordered := make([]StationResult, 0, len(results))
+
+	for name := range results {
+		ordered = append(ordered, results[name])
+	}
+
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i].Name < ordered[j].Name
+	})
+
+	return ordered
 }
