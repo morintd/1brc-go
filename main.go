@@ -6,9 +6,6 @@ import (
 	"log"
 	"os"
 	"time"
-
-	_ "github.com/onsi/ginkgo/v2"
-	_ "github.com/onsi/gomega"
 )
 
 func main() {
@@ -21,9 +18,8 @@ func main() {
 	filePath := args[1]
 
 	start := time.Now()
-	result := internal.SolveFast(filePath)
+	internal.SolveFast(filePath)
 	elapsed := time.Since(start)
 
 	log.Printf("\nTook %s", elapsed)
-	log.Println(result)
 }

@@ -8,7 +8,6 @@ import (
 	"os"
 	"runtime"
 	"sort"
-	"strings"
 )
 
 func SolveFast(filename string) string {
@@ -32,8 +31,13 @@ func SolveFast(filename string) string {
 
 	offset := fileSize / int64(workers)
 
-	results := make(map[string]*StationResult)
-	send := make(chan map[string]*StationResult)
+	if offset == 0 {
+		workers = 1
+		offset = fileSize
+	}
+
+	results := make(map[string]StationResult)
+	send := make(chan map[string]StationResult, workers)
 
 	for i := int64(0); i < workers; i++ {
 		limit := offset * (i + 1)
@@ -62,6 +66,8 @@ func SolveFast(filename string) string {
 				if workerStation.Minimum < station.Minimum {
 					station.Minimum = workerStation.Minimum
 				}
+
+				results[workerName] = station
 			} else {
 				results[workerName] = workerResults[workerName]
 			}
@@ -84,8 +90,8 @@ func SolveFast(filename string) string {
 	return buffer.String()
 }
 
-func orderResults(results map[string]*StationResult) []*StationResult {
-	ordered := make([]*StationResult, 0, len(results))
+func orderResults(results map[string]StationResult) []StationResult {
+	ordered := make([]StationResult, 0, len(results))
 
 	for name := range results {
 		ordered = append(ordered, results[name])
@@ -98,7 +104,7 @@ func orderResults(results map[string]*StationResult) []*StationResult {
 	return ordered
 }
 
-func readSection(filename string, offset int64, limit int64, send chan map[string]*StationResult) {
+func readSection(filename string, offset int64, limit int64, send chan map[string]StationResult) {
 	file, err := os.Open(filename)
 
 	if err != nil {
@@ -108,10 +114,10 @@ func readSection(filename string, offset int64, limit int64, send chan map[strin
 	defer file.Close()
 
 	read := int64(0)
-	results := make(map[string]*StationResult)
+	results := make(map[string]StationResult)
 
 	file.Seek(offset, 0)
-	reader := bufio.NewReader(file)
+	reader := bufio.NewReaderSize(file, 1<<20)
 
 	if offset != 0 {
 		b, _ := reader.ReadBytes('\n')
@@ -129,61 +135,75 @@ func readSection(filename string, offset int64, limit int64, send chan map[strin
 			log.Panic(err)
 		}
 
-		line := strings.TrimSpace(string(b))
-		infos := strings.Split(line, ";")
+		semi := bytes.IndexByte(b, ';')
+		if semi <= 0 || semi == len(b)-1 {
+			read += int64(len(b))
+			if err == io.EOF {
+				break
+			}
+			continue
+		}
 
-		if len(infos) == 2 {
-			name := infos[0]
-			temperature := temperatureToInt(infos[1])
+		name := string(b[:semi])
+		line := b[semi+1:]
 
-			if station, ok := results[name]; ok {
-				station.Total += temperature
+		if len(line) > 0 && line[len(line)-1] == '\n' {
+			line = line[:len(line)-1]
+		}
+		if len(line) > 0 && line[len(line)-1] == '\r' {
+			line = line[:len(line)-1]
+		}
 
-				station.Count += 1
+		temperature := temperatureToInt(line)
 
-				if temperature > station.Maximum {
-					station.Maximum = temperature
-				}
+		if station, ok := results[name]; ok {
+			station.Total += temperature
 
-				if temperature < station.Minimum {
-					station.Minimum = temperature
-				}
-			} else {
-				results[name] = &StationResult{
-					Name:    name,
-					Total:   temperature,
-					Count:   1,
-					Minimum: temperature,
-					Maximum: temperature,
-				}
+			station.Count++
+
+			if temperature > station.Maximum {
+				station.Maximum = temperature
+			}
+
+			if temperature < station.Minimum {
+				station.Minimum = temperature
+			}
+
+			results[name] = station
+		} else {
+			results[name] = StationResult{
+				Name:    name,
+				Total:   temperature,
+				Count:   1,
+				Minimum: temperature,
+				Maximum: temperature,
 			}
 		}
+
+		read += int64(len(b))
 
 		if err == io.EOF {
 			break
 		}
-
-		read += int64(len(b))
 	}
 
 	send <- results
 }
 
-func temperatureToInt(temperature string) int {
+func temperatureToInt(temperature []byte) int {
 	result := 0
 	negative := false
 
-	for _, char := range temperature {
-		if char == 45 {
+	for i := 0; i < len(temperature); i++ {
+		char := temperature[i]
+		if char == '-' {
 			negative = true
 			continue
 		}
-
-		if char == 46 {
+		if char == '.' {
 			continue
 		}
-
-		result = result*10 + int(char-48)
+		result = result*10 + int(char-'0')
 	}
 
 	if negative {

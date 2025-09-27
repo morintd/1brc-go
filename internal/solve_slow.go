@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"log"
 	"os"
-	"strings"
 )
 
 func SolveSlow(filename string) string {
@@ -18,15 +17,18 @@ func SolveSlow(filename string) string {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	results := make(map[string]*StationResult)
+	results := make(map[string]StationResult)
 	i := 0
 
 	for scanner.Scan() {
-		line := scanner.Text()
-		infos := strings.Split(line, ";")
+		line := scanner.Bytes()
+		semi := bytes.IndexByte(line, ';')
+		if semi <= 0 || semi == len(line)-1 {
+			continue
+		}
 
-		name := infos[0]
-		temperature := temperatureToInt(infos[1])
+		name := string(line[:semi])
+		temperature := temperatureToInt(line[semi+1:])
 
 		if err != nil {
 			log.Panic(err)
@@ -34,7 +36,7 @@ func SolveSlow(filename string) string {
 
 		if station, ok := results[name]; ok {
 			station.Total += temperature
-			station.Count += 1
+			station.Count++
 
 			if temperature > station.Maximum {
 				station.Maximum = temperature
@@ -43,8 +45,10 @@ func SolveSlow(filename string) string {
 			if temperature < station.Minimum {
 				station.Minimum = temperature
 			}
+
+			results[name] = station
 		} else {
-			results[name] = &StationResult{
+			results[name] = StationResult{
 				Name:    name,
 				Total:   temperature,
 				Count:   1,
